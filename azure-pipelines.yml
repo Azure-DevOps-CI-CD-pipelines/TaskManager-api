@@ -1,0 +1,63 @@
+trigger:
+- main
+
+pool:
+  vmImage: ubuntu-latest
+
+stages:
+- stage: Initialize
+  displayName: 'Build'
+  jobs:
+    - job: 'BuildTaskManagerBE'
+      displayName: 'Build'
+      steps:
+        - task: NodeTool@0
+          inputs:
+            versionSpec: '16.x'
+          displayName: 'Install Node.js'
+
+        - script: |
+            npm install
+          displayName: 'Npm install'
+        
+        - task: CopyFiles@2
+          inputs:
+            sourceFolder: '$(Build.SourcesDirectory)'
+            contents: '**' 
+            targetFolder: $(Build.ArtifactStagingDirectory)/npm
+          displayName: 'Copy files' 
+        
+        - task: PublishPipelineArtifact@1
+          inputs:
+            targetPath: '$(Build.ArtifactStagingDirectory)/npm'
+            artifactName: npm
+          displayName: 'Publish npm artifact'
+
+- stage: Deploy
+  displayName: 'Deploy to Azure app service'
+  dependsOn: Initialize
+  condition: succeeded()
+  jobs:
+    - deployment: deployTaskManagerBE
+      displayName: 'Deploy'
+      environment: 'stage'
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+            - task: DownloadPipelineArtifact@2
+              displayName: 'Download the Pipeline Artifact'
+              inputs:
+                artifactName: 'npm'
+                targetPath: '$(Build.ArtifactStagingDirectory)/npm'
+            - task: AzureRmWebAppDeployment@4
+              displayName: 'Deploy taskmanagerbe app to Azure app service'
+              inputs:
+                ConnectionType: 'AzureRM'
+                azureSubscription: 'taskmanager-be'
+                appType: 'webAppLinux'
+                WebAppName: 'taskmanagerbe'
+                packageForLinux: '$(Build.ArtifactStagingDirectory)/npm'
+                RuntimeStack: 'NODE|16-lts'
+                StartupCommand: 'node app.js'
+            
